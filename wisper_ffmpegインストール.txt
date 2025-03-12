@@ -1,0 +1,6 @@
+pip install openai-whisper
+
+sudo add-apt-repository ppa:mc3man/trusty-media
+sudo add-apt-repository --remove ppa:mc3man/trusty-media
+sudo apt update && upgrade
+sudo apt install ffmpeg
