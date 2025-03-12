@@ -1,0 +1,11 @@
+GPT-4oを使って解説動画からExcel作業手順書を自動生成してみた
+https://zenn.dev/acntechjp/articles/b9911f48fef2c8
+
+GPT-4o(omni)を使って動画を解釈させる
+https://zenn.dev/yufuji25/articles/5e7809e565afc2
+
+PySceneDetect：シーン単位で分割できるPythonライブラリ
+https://qiita.com/ymgc3/items/ce3c7c2326965c4e6964
+
+PySceneDetect
+https://www.scenedetect.com/
