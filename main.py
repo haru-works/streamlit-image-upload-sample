@@ -23,7 +23,6 @@ import math
 # audio
 #import whisper
 
-
 # システムプロンプトを含むディレクトリまでパスを通す
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -31,41 +30,52 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 load_dotenv()
 
-
 # ページ設定
 st.set_page_config(page_title="streamlit demo",layout="wide")
 
 # セッションステート
-if "base64_data" not in st.session_state:
-    st.session_state["base64_data"] = None
-if "image_data" not in st.session_state:
-    st.session_state["image_data"] = None 
-    
-if "video_scene_file_list" not in st.session_state:
-    st.session_state["video_scene_file_list"] = []
-if "tmp_audio_file_path" not in st.session_state:
-    st.session_state["tmp_audio_file_path"] = None
-    
+# チャット履歴  
+if "messages" not in st.session_state:
+    st.session_state["messages"] = []
+
+# 画像解析用
 if "uploaded_pic" in st.session_state and st.session_state["uploaded_pic"]:
     st.toast("画像をアップロードしました", icon="📥")
     del st.session_state["uploaded_pic"]
+
+if "base64_data" not in st.session_state:
+    st.session_state["base64_data"] = None
+    
+if "image_data" not in st.session_state:
+    st.session_state["image_data"] = None 
+    
+# 動画解析用
 if "uploaded_video" in st.session_state and st.session_state["uploaded_video"]:
     st.toast("動画をアップロードしました", icon="📥")
     del st.session_state["uploaded_video"]
-    
-if "messages" not in st.session_state:
-    st.session_state["messages"] = []
-    
+
+if "video_scene_file_list" not in st.session_state:
+    st.session_state["video_scene_file_list"] = []
+
+if "tmp_audio_file_path" not in st.session_state:
+    st.session_state["tmp_audio_file_path"] = None
 
 if "anchor_ids" not in st.session_state:
     st.session_state["anchor_ids"] = []
+
 if "anchor_icons" not in st.session_state:
     st.session_state["anchor_icons"] = []
+
 if "anchor_labels" not in st.session_state:
     st.session_state["anchor_labels"] = []
 
+if "final_response" not in st.session_state:
+    st.session_state["final_response"] = None
 
 
+##################################################################
+# 関数
+################################################################## 
 # 削除用コールバック関数
 def delete_scene(target_no):
     if len(st.session_state["video_scene_file_list"]) > 0:
@@ -84,9 +94,7 @@ def delete_scene(target_no):
         # リストを更新
         st.session_state["video_scene_file_list"] = new_values
 
-  
-  
-    
+   
 # llm初期化
 def init_llm(llm_model: str,temperature):
     if llm_model == 'gemini-1.5-flash':
@@ -99,7 +107,6 @@ def init_llm(llm_model: str,temperature):
                                       temperature=temperature,)
     else:
         st.error(f'サポートされてないLLMモデルです: {llm_model}',icon="✖")
-
 
 
 # 画像アップロード
@@ -127,7 +134,6 @@ def upload_image():
             st.session_state["base64_data"] = base64_data
             st.session_state["image_data"] = image
             st.rerun()
-
 
 
 # 動画アップロード
@@ -178,7 +184,6 @@ def upload_video():
                 st.session_state["video_scene_file_list"] = json_data_list
                 st.rerun()        
                 
-
 
 # 動画フレーム解析
 def split_video_into_scenes_auto(video_path, threshold=27.0):
@@ -240,7 +245,6 @@ def split_video_into_scenes_auto(video_path, threshold=27.0):
     return audio_path, json_data_list
 
 
-
 # 動画フレーム解析&音声抽出
 def split_video_into_scenes_manual(video_path, seconds_per_frame=2):
     
@@ -295,7 +299,6 @@ def split_video_into_scenes_manual(video_path, seconds_per_frame=2):
         return audio_path,json_data_list
 
 
-
 # 手順書自動作成
 def generate_procedure(llm_model,
                        temperature,
@@ -333,29 +336,33 @@ def generate_procedure(llm_model,
         print(procedure)
         print("=" * 40)  # 区切り線を表示
 
-    # システムプロンプト 
-    system_prompt = SystemMessage(content=f"""
-これまでに生成された各シーンの作業手順をもとに、動画全体の詳細な作業手順書を章建てて構成し、#出力フォーマットで作成してください。
-出力フォーマットの前後に余計な説明をつけないでください。
-#出力フォーマット:
-|No|作業名|詳細手順|
-|xxx|xxxx|xxxx|
+    st.session_state["final_response"] = None
+    if(len(procedure_steps)> 0):
+        # システムプロンプト 
+        final_system_prompt = SystemMessage(content=f"""
+これまでに生成された各シーンの作業手順をもとに、動画全体の詳細な作業手順書を章建てて構成し、下記の [# 出力フォーマット] で作成してください。
+出力フォーマットの前後に余計な説明をつけないで、テーブルだけ出力してください。
+
+# 出力フォーマット:
+
+    |No|作業名|詳細手順|
+    |xxx|xxxx|xxxx|
+
 """)                                        
-    # ユーザープロンプト
-    message = HumanMessage(
-                    content=[
-                        {"type":"text", "text":"\n".join(procedure_steps)},
-                    ]
-                )    
-    final_response = llm.invoke([system_prompt,message])     
-
-    main_container2.markdown(final_response.content,unsafe_allow_html=True)
-
+        # ユーザープロンプト
+        final_message = HumanMessage(
+                        content=[
+                            {"type":"text", "text":"\n".join(procedure_steps)},
+                        ]
+                    )    
+        final_response = llm.invoke([final_system_prompt,final_message])     
+        print(final_response.content)
+        st.session_state["final_response"] = final_response.content
 
 
 # 説明編集
 @st.dialog("📝説明編集")
-def delete_scene_note(target_no,scene_note):
+def update_scene_note(target_no,scene_note):
     # チャット入力
     update_scene_note = st.text_area(label="📝説明編集", 
                         value=scene_note,
@@ -371,8 +378,45 @@ def delete_scene_note(target_no,scene_note):
         st.rerun()
 
 
+# 説明クリア
+def delete_scene_note(target_no):
+    st.session_state["video_scene_file_list"][target_no]["procedure"]  = "" 
+    
+
+# シーン解析
+def scene_ai_kaiseki(target_no,llm_model,temperature,sub_col2_3): 
+    with sub_col2_3:
+        with st.spinner(text="シーン解析中",show_time=True):  
+            llm = init_llm(llm_model,temperature)   
+            # audio文字起こし
+            transcription_text = ""
+            num_requests = len(st.session_state["video_scene_file_list"])
+            frames_subset = [st.session_state["video_scene_file_list"][target_no]["base64_data"]]
+            # システムプロンプト 
+            system_prompt = SystemMessage(content=f"与えられた動画データのシーン{target_no+1}/{num_requests}と文字起こしデータを元に、説明されている作業の手順をできるだけ詳細に日本語で箇条書きで作成してください。")   
+            # ユーザープロンプト
+            message = HumanMessage(
+                            content=[
+                                {"type":"text", "text":f"こちらが動画シーン{target_no+1}/{num_requests}のフレーム画像です。"},
+                                *map(lambda x: {"type": "image_url", 
+                                    "image_url": {"url": f'data:image/jpg;base64,{x}', "detail": "low"}}, frames_subset),
+                                {"type": "text", "text": f"音声の文字起こしデータは以下の通りです: {transcription_text}"}
+                            ]
+                        )
+            
+            response = llm.invoke([system_prompt,message]) 
+            procedure = response.content
+            st.session_state["video_scene_file_list"][target_no]["procedure"] = procedure
+            
+            print(f"シーン {target_no+1}/{num_requests} の作業手順:")
+            print(procedure)
+            print("=" * 40)  # 区切り線を表示
 
 
+
+##################################################################
+# メイン画面
+##################################################################  
 # タブを作成
 tab_titles = ['💭通常チャット', '🎥動画解析']
 tab1, tab2 = st.tabs(tab_titles)
@@ -384,7 +428,9 @@ user_avatar = "👩‍💻"
 assistant_avatar = "🤖"
 
      
-# 各タブにコンテンツを追加
+##################################################################
+# 通常チャット
+##################################################################  
 with tab1:
     # タイトル
     #st.markdown("### AI Chat") 
@@ -491,7 +537,9 @@ with tab1:
 
 
 
+##################################################################
 # 動画解析
+##################################################################  
 with tab2:
     # タイトル
     #st.markdown("### 動画解析")
@@ -514,9 +562,10 @@ with tab2:
     with col4:
         if st.session_state["tmp_audio_file_path"] != None:
             st.audio(st.session_state["tmp_audio_file_path"],autoplay=False)
-      
-    if len(st.session_state["video_scene_file_list"]) > 0:  
-          
+
+ 
+    # 動画シーン一覧表示     
+    if len(st.session_state["video_scene_file_list"]) > 0:      
         st.session_state["anchor_ids"] = []   
         st.session_state["anchor_labels"] = []       
         st.session_state["anchor_icons"] = []             
@@ -543,9 +592,16 @@ with tab2:
             with sub_col2:
                 scene_text_container = sub_col2.container(border=1,height=450)
                 scene_text_container.markdown(st.session_state["video_scene_file_list"][i]["procedure"],unsafe_allow_html=True)
-                sub_col2.button(label="📝説明編集",key="scene_note_update_" + anchor_id,on_click=delete_scene_note, args=(i,st.session_state["video_scene_file_list"][i]["procedure"]))
+                sub_col2_1,sub_col2_2,sub_col2_3,sub_col2_4 = sub_col2.columns((1,2,1,1))
+                sub_col2_1.button(label="🤖シーン解析",key="scene_ai_kaiseki_" + anchor_id,on_click=scene_ai_kaiseki, args=(i, llm_model,temperature,sub_col2_2))
+                sub_col2_3.button(label="📝説明編集",key="scene_note_update_" + anchor_id,on_click=update_scene_note, args=(i,st.session_state["video_scene_file_list"][i]["procedure"]))
+                sub_col2_4.button(label="🗑️説明クリア",key="scene_note_clear_" + anchor_id,on_click=delete_scene_note, args=(i,))
 
- 
+                
+        # 最終的なまとめ出力
+        if st.session_state["final_response"] != None:
+            main_container2.markdown(st.session_state["final_response"],unsafe_allow_html=True)
+
 
 
     # 実行ボタン 
@@ -557,16 +613,15 @@ with tab2:
 
             # LLM実行
             with col3:
-                with st.spinner(text="AI実行中...",show_time=True):  
+                with st.spinner(text="動画解析中",show_time=True):  
                     # audio文字起こし
                     transcription_text = ""
                     # 作業手順書を生成
                     procedure = generate_procedure(llm_model=llm_model,
-                                                    temperature=temperature,
+                                                   temperature=temperature,
                                                     video_scene_file_list=st.session_state["video_scene_file_list"] , 
                                                     transcription_text=transcription_text)
                     st.rerun()
-
 
         else:
             st.warning("動画をアップロードしてください")
@@ -580,6 +635,7 @@ with tab2:
         st.session_state["anchor_ids"] = []
         st.session_state["anchor_labels"] = []
         st.session_state["anchor_icons"] = [] 
+        st.session_state["final_response"] = None
         
         shutil.rmtree("tmp_mp3/tmp")
         os.mkdir("tmp_mp3/tmp")       
