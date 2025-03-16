@@ -1,2 +1,2 @@
 # streamlit-imge-upload-sample-ui
-streamlitのイメージアップロードUIサンプル
+streamlit UI sample
