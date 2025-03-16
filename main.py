@@ -63,7 +63,8 @@ if "anchor_icons" not in st.session_state:
     st.session_state["anchor_icons"] = []
 if "anchor_labels" not in st.session_state:
     st.session_state["anchor_labels"] = []
-
+if "final_response" not in st.session_state:
+    st.session_state["final_response"] = None
 
 
 # 削除用コールバック関数
@@ -333,29 +334,34 @@ def generate_procedure(llm_model,
         print(procedure)
         print("=" * 40)  # 区切り線を表示
 
-    # システムプロンプト 
-    system_prompt = SystemMessage(content=f"""
-これまでに生成された各シーンの作業手順をもとに、動画全体の詳細な作業手順書を章建てて構成し、#出力フォーマットで作成してください。
-出力フォーマットの前後に余計な説明をつけないでください。
-#出力フォーマット:
-|No|作業名|詳細手順|
-|xxx|xxxx|xxxx|
-""")                                        
-    # ユーザープロンプト
-    message = HumanMessage(
-                    content=[
-                        {"type":"text", "text":"\n".join(procedure_steps)},
-                    ]
-                )    
-    final_response = llm.invoke([system_prompt,message])     
+    st.session_state["final_response"] = None
+    if(len(procedure_steps)> 0):
+        # システムプロンプト 
+        final_system_prompt = SystemMessage(content=f"""
+これまでに生成された各シーンの作業手順をもとに、動画全体の詳細な作業手順書を章建てて構成し、下記の [# 出力フォーマット] で作成してください。
+出力フォーマットの前後に余計な説明をつけないで、テーブルだけ出力してください。
 
-    main_container2.markdown(final_response.content,unsafe_allow_html=True)
+# 出力フォーマット:
+
+    |No|作業名|詳細手順|
+    |xxx|xxxx|xxxx|
+
+""")                                        
+        # ユーザープロンプト
+        final_message = HumanMessage(
+                        content=[
+                            {"type":"text", "text":"\n".join(procedure_steps)},
+                        ]
+                    )    
+        final_response = llm.invoke([final_system_prompt,final_message])     
+        print(final_response.content)
+        st.session_state["final_response"] = final_response.content
 
 
 
 # 説明編集
 @st.dialog("📝説明編集")
-def delete_scene_note(target_no,scene_note):
+def update_scene_note(target_no,scene_note):
     # チャット入力
     update_scene_note = st.text_area(label="📝説明編集", 
                         value=scene_note,
@@ -372,6 +378,47 @@ def delete_scene_note(target_no,scene_note):
 
 
 
+# 説明クリア
+def delete_scene_note(target_no):
+    st.session_state["video_scene_file_list"][target_no]["procedure"]  = "" 
+    
+
+
+
+
+# シーン解析
+def scene_ai_kaiseki(target_no,llm_model,temperature,sub_col2_3):
+    
+    with sub_col2_3:
+        with st.spinner(text="シーン解析中",show_time=True):  
+            llm = init_llm(llm_model,temperature)   
+            # audio文字起こし
+            transcription_text = ""
+            num_requests = len(st.session_state["video_scene_file_list"])
+            frames_subset = [st.session_state["video_scene_file_list"][target_no]["base64_data"]]
+            # システムプロンプト 
+            system_prompt = SystemMessage(content=f"与えられた動画データのシーン{target_no+1}/{num_requests}と文字起こしデータを元に、説明されている作業の手順をできるだけ詳細に日本語で箇条書きで作成してください。")   
+            # ユーザープロンプト
+            message = HumanMessage(
+                            content=[
+                                {"type":"text", "text":f"こちらが動画シーン{target_no+1}/{num_requests}のフレーム画像です。"},
+                                *map(lambda x: {"type": "image_url", 
+                                    "image_url": {"url": f'data:image/jpg;base64,{x}', "detail": "low"}}, frames_subset),
+                                {"type": "text", "text": f"音声の文字起こしデータは以下の通りです: {transcription_text}"}
+                            ]
+                        )
+            
+            response = llm.invoke([system_prompt,message]) 
+            procedure = response.content
+            st.session_state["video_scene_file_list"][target_no]["procedure"] = procedure
+            
+            print(f"シーン {target_no+1}/{num_requests} の作業手順:")
+            print(procedure)
+            print("=" * 40)  # 区切り線を表示
+
+
+  
+  
 
 # タブを作成
 tab_titles = ['💭通常チャット', '🎥動画解析']
@@ -543,9 +590,14 @@ with tab2:
             with sub_col2:
                 scene_text_container = sub_col2.container(border=1,height=450)
                 scene_text_container.markdown(st.session_state["video_scene_file_list"][i]["procedure"],unsafe_allow_html=True)
-                sub_col2.button(label="📝説明編集",key="scene_note_update_" + anchor_id,on_click=delete_scene_note, args=(i,st.session_state["video_scene_file_list"][i]["procedure"]))
-
- 
+                sub_col2_1,sub_col2_2,sub_col2_3,sub_col2_4 = sub_col2.columns((1,2,1,1))
+                sub_col2_1.button(label="🤖シーン解析",key="scene_ai_kaiseki_" + anchor_id,on_click=scene_ai_kaiseki, args=(i, llm_model,temperature,sub_col2_2))
+                sub_col2_3.button(label="📝説明編集",key="scene_note_update_" + anchor_id,on_click=update_scene_note, args=(i,st.session_state["video_scene_file_list"][i]["procedure"]))
+                sub_col2_4.button(label="🗑️説明クリア",key="scene_note_clear_" + anchor_id,on_click=delete_scene_note, args=(i,))
+                
+        # 最終的なまとめ出力
+        if st.session_state["final_response"] != None:
+            main_container2.markdown(st.session_state["final_response"],unsafe_allow_html=True)
 
 
     # 実行ボタン 
@@ -557,12 +609,12 @@ with tab2:
 
             # LLM実行
             with col3:
-                with st.spinner(text="AI実行中...",show_time=True):  
+                with st.spinner(text="動画解析中",show_time=True):  
                     # audio文字起こし
                     transcription_text = ""
                     # 作業手順書を生成
                     procedure = generate_procedure(llm_model=llm_model,
-                                                    temperature=temperature,
+                                                   temperature=temperature,
                                                     video_scene_file_list=st.session_state["video_scene_file_list"] , 
                                                     transcription_text=transcription_text)
                     st.rerun()
@@ -580,6 +632,7 @@ with tab2:
         st.session_state["anchor_ids"] = []
         st.session_state["anchor_labels"] = []
         st.session_state["anchor_icons"] = [] 
+        st.session_state["final_response"] = None
         
         shutil.rmtree("tmp_mp3/tmp")
         os.mkdir("tmp_mp3/tmp")       
