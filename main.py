@@ -20,6 +20,7 @@ from scenedetect import VideoManager
 from scenedetect import SceneManager
 import tempfile
 import math
+from yt_dlp import YoutubeDL
 # audio
 #import whisper
 
@@ -139,11 +140,13 @@ def upload_image():
 # 動画アップロード
 @st.dialog("🎥動画アップロード")
 def upload_video():
-    st.warning("アップロードしたい動画を選択してください",icon="💡",)
-    video = st.file_uploader("ファイル選択", 
-                               type=["mp4", "avi"], 
-                               label_visibility="hidden") 
     
+    st.warning("アップロードしたい動画を選択してください",icon="💡",)
+
+    video = st.file_uploader("ファイル選択", 
+                            type=["mp4", "avi"], 
+                            label_visibility="hidden") 
+        
     # 動画アップロード
     if video:   
         # 一時ファイルとして保存
@@ -160,7 +163,7 @@ def upload_video():
                 seconds_per_frame = st.number_input(label="フレーム数/秒",value=10,step=1) 
             else:
                 threshold = st.number_input(label="閾値",value=30,step=1) 
-                 
+                
             if st.button("シーン分割"):
                 # 初期化
                 st.session_state["video_scene_file_list"] = []
@@ -174,7 +177,6 @@ def upload_video():
                 shutil.rmtree("tmp_video")
                 os.mkdir("tmp_video")   
                 
-                
                 if selected_mode == "手動":
                     audio_path,json_data_list = split_video_into_scenes_manual(video_path=temp_file_path,seconds_per_frame=seconds_per_frame)
                 else:
@@ -182,8 +184,12 @@ def upload_video():
 
                 st.session_state["tmp_audio_file_path"] = audio_path
                 st.session_state["video_scene_file_list"] = json_data_list
-                st.rerun()        
-                
+                st.rerun()       
+        
+    
+
+
+
 
 # 動画フレーム解析
 def split_video_into_scenes_auto(video_path, threshold=27.0):
@@ -315,7 +321,7 @@ def generate_procedure(llm_model,
     for i in range(num_requests):    
         frames_subset = [st.session_state["video_scene_file_list"][i]["base64_data"]]
         # システムプロンプト 
-        system_prompt = SystemMessage(content=f"与えられた動画データのシーン{i+1}/{num_requests}と文字起こしデータを元に、説明されている作業の手順をできるだけ詳細に日本語で箇条書きで作成してください。")   
+        system_prompt = SystemMessage(content=f"与えられた動画データのシーン{i+1}/{num_requests}をできるだけ詳細に日本語で箇条書きで作成してください。")   
         
         # ユーザープロンプト
         message = HumanMessage(
@@ -323,7 +329,7 @@ def generate_procedure(llm_model,
                             {"type":"text", "text":f"こちらが動画シーン{i+1}/{num_requests}のフレーム画像です。"},
                             *map(lambda x: {"type": "image_url", 
                                 "image_url": {"url": f'data:image/jpg;base64,{x}', "detail": "low"}}, frames_subset),
-                            {"type": "text", "text": f"音声の文字起こしデータは以下の通りです: {transcription_text}"}
+                            #{"type": "text", "text": f"音声の文字起こしデータは以下の通りです: {transcription_text}"}
                         ]
                     )
         
@@ -393,14 +399,14 @@ def scene_ai_kaiseki(target_no,llm_model,temperature,sub_col2_3):
             num_requests = len(st.session_state["video_scene_file_list"])
             frames_subset = [st.session_state["video_scene_file_list"][target_no]["base64_data"]]
             # システムプロンプト 
-            system_prompt = SystemMessage(content=f"与えられた動画データのシーン{target_no+1}/{num_requests}と文字起こしデータを元に、説明されている作業の手順をできるだけ詳細に日本語で箇条書きで作成してください。")   
+            system_prompt = SystemMessage(content=f"与えられた動画データのシーン{target_no+1}/{num_requests}をできるだけ詳細に日本語で箇条書きで作成してください。")   
             # ユーザープロンプト
             message = HumanMessage(
                             content=[
                                 {"type":"text", "text":f"こちらが動画シーン{target_no+1}/{num_requests}のフレーム画像です。"},
                                 *map(lambda x: {"type": "image_url", 
                                     "image_url": {"url": f'data:image/jpg;base64,{x}', "detail": "low"}}, frames_subset),
-                                {"type": "text", "text": f"音声の文字起こしデータは以下の通りです: {transcription_text}"}
+                                #{"type": "text", "text": f"音声の文字起こしデータは以下の通りです: {transcription_text}"}
                             ]
                         )
             
@@ -408,7 +414,7 @@ def scene_ai_kaiseki(target_no,llm_model,temperature,sub_col2_3):
             procedure = response.content
             st.session_state["video_scene_file_list"][target_no]["procedure"] = procedure
             
-            print(f"シーン {target_no+1}/{num_requests} の作業手順:")
+            print(f"シーン {target_no+1}/{num_requests} の説明:")
             print(procedure)
             print("=" * 40)  # 区切り線を表示
 
@@ -572,15 +578,16 @@ with tab2:
         for json_data in st.session_state["video_scene_file_list"]:   
             st.session_state["anchor_ids"].append("scene_no_" + str(json_data["scene_no"]))
             st.session_state["anchor_labels"].append("シーンNO:" + str(json_data["scene_no"]))
-            st.session_state["anchor_icons"].append("🖼️")
+            st.session_state["anchor_icons"].append("tag")
          
-        with st.sidebar:    
-            st.subheader("🎥動画シーン一覧")
-            scroll_navbar(
-                anchor_ids=st.session_state["anchor_ids"],
-                anchor_labels=st.session_state["anchor_labels"],
-                anchor_icons=st.session_state["anchor_icons"])              
-                
+        with st.sidebar:  
+             st.subheader("🎥動画シーン一覧")
+             with st.container(height=700):
+                scroll_navbar(
+                    anchor_ids=st.session_state["anchor_ids"],
+                    anchor_labels=st.session_state["anchor_labels"],
+                    anchor_icons=st.session_state["anchor_icons"])              
+                    
         for i,anchor_id,anchor_label in zip(range(len(st.session_state["video_scene_file_list"])),st.session_state["anchor_ids"],st.session_state["anchor_labels"]):   
             main_container2.subheader(anchor_label,anchor=anchor_id)     
             sub_col1,sub_col2 = main_container2.columns((1,1))  
@@ -590,7 +597,7 @@ with tab2:
                 sub_col1.button(label="🗑️シーン削除",key="scene_delete_" + anchor_id,on_click=delete_scene, args=(i, ))
             # シーン説明表示
             with sub_col2:
-                scene_text_container = sub_col2.container(border=1,height=450)
+                scene_text_container = sub_col2.container(border=1,height=400)
                 scene_text_container.markdown(st.session_state["video_scene_file_list"][i]["procedure"],unsafe_allow_html=True)
                 sub_col2_1,sub_col2_2,sub_col2_3,sub_col2_4 = sub_col2.columns((1,2,1,1))
                 sub_col2_1.button(label="🤖シーン解析",key="scene_ai_kaiseki_" + anchor_id,on_click=scene_ai_kaiseki, args=(i, llm_model,temperature,sub_col2_2))
@@ -605,7 +612,7 @@ with tab2:
 
 
     # 実行ボタン 
-    if col2.button(label="🎥動画解析",key="button_video",type="primary"):
+    if col2.button(label="🎥一括動画解析",key="button_video",type="primary"):
     
         # ユーザー            
         if len(st.session_state["video_scene_file_list"]) > 0:
