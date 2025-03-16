@@ -1,2 +1,2 @@
-# streamlit-imge-upload-sample-ui
+# streamlit UI sample
 streamlit UI sample
